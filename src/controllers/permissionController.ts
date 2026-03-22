@@ -1,4 +1,5 @@
 import { Response } from 'express';
+import { IsNull } from 'typeorm';
 import { AppDataSource } from '../config/database';
 import { Permission, ResourceType, PermissionAction } from '../models/Permission';
 import { AuthRequest } from '../middleware/auth';
@@ -102,7 +103,7 @@ export class PermissionController {
       }
 
       let permission = await this.permissionRepository.findOne({
-        where: { role, resource, pluginId: null }
+        where: { role, resource, pluginId: IsNull() }
       });
 
       if (permission) {
@@ -148,7 +149,7 @@ export class PermissionController {
         const { role, resource, canInMenu, canView, canCreate, canEdit, canDelete } = perm;
 
         let permission = await this.permissionRepository.findOne({
-          where: { role, resource, pluginId: null }
+          where: { role, resource, pluginId: IsNull() }
         });
 
         if (permission) {
