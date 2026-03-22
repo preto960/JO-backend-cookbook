@@ -1,4 +1,4 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn, Index } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn } from 'typeorm';
 
 export enum UserRole {
   USER = 'USER',
@@ -7,19 +7,15 @@ export enum UserRole {
 }
 
 @Entity('users')
-// @Index(['tenantId', 'email'], { unique: true })
 export class User {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column()
+  @Column({ unique: true })
   email: string;
 
   @Column()
   password: string;
-
-  @Column({ type: 'uuid', nullable: true, name: 'tenantId' })
-  tenantId?: string | null;
 
   @Column()
   firstName: string;
@@ -56,5 +52,4 @@ export class User {
 
   @UpdateDateColumn()
   updatedAt: Date;
-
 }

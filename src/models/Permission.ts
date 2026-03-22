@@ -1,18 +1,13 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, Index } from 'typeorm';
-import { UserRole } from './User';
 
 export enum ResourceType {
   DASHBOARD = 'DASHBOARD',
-  MARKET = 'MARKET',
-  PLUGINS = 'PLUGINS',
   USERS = 'USERS',
   ROLES = 'ROLES',
   PERMISSIONS = 'PERMISSIONS',
   SETTINGS = 'SETTINGS',
   PROFILE = 'PROFILE',
   TRANSLATIONS = 'TRANSLATIONS',
-  TENANTS = 'TENANTS',
-  EXTERNAL_APIS = 'EXTERNAL_APIS'
 }
 
 export enum PermissionAction {
@@ -28,35 +23,29 @@ export class Permission {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({
-    type: 'varchar',
-    length: 50
-  })
+  @Column({ type: 'varchar', length: 50 })
   role: string;
 
-  @Column({
-    type: 'varchar',
-    length: 255
-  })
-  resource: string; // Changed from enum to string to support dynamic plugin resources
+  @Column({ type: 'varchar', length: 255 })
+  resource: string;
 
   @Column({ type: 'varchar', nullable: true })
-  pluginId: string | null; // NULL = base system permission, UUID = plugin permission
+  pluginId: string | null;
 
   @Column({ default: false })
-  isDynamic: boolean; // true = created by plugin, false = base system
+  isDynamic: boolean;
 
   @Column({ type: 'varchar', nullable: true })
-  resourceLabel: string | null; // Human-readable label for the resource
+  resourceLabel: string | null;
 
   @Column({ type: 'text', nullable: true })
-  resourceDescription: string | null; // Description of what this resource controls
+  resourceDescription: string | null;
 
   @Column({ type: 'int', nullable: true, default: 0 })
-  displayOrder: number; // Order in which to display this permission in the UI
+  displayOrder: number;
 
   @Column({ default: true })
-  canInMenu: boolean; // Controls if the resource appears in the menu/sidebar
+  canInMenu: boolean;
 
   @Column({ default: false })
   canView: boolean;
@@ -76,4 +65,3 @@ export class Permission {
   @UpdateDateColumn()
   updatedAt: Date;
 }
-

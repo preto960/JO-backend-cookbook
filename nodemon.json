@@ -1,14 +1,12 @@
 {
-  "watch": ["src"],
+  "watch": [
+    "src"
+  ],
   "ext": "ts,json",
   "ignore": [
     "src/**/*.spec.ts",
     "node_modules",
-    "dist",
-    "plugins-runtime",
-    ".build"
+    "dist"
   ],
   "exec": "ts-node src/index.ts"
 }
-
-

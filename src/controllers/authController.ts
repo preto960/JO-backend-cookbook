@@ -2,55 +2,39 @@ import { Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt, { SignOptions } from 'jsonwebtoken';
 import { AppDataSource } from '../config/database';
-import { User, UserRole } from '../models/User';
+import { User } from '../models/User';
 import { Setting, SettingCategory } from '../models/Setting';
-import { Tenant } from '../models/Tenant';
 import { createError } from '../middleware/errorHandler';
 import { AuthRequest } from '../middleware/auth';
-import { notificationService } from '../services/notificationService';
 
 export class AuthController {
   private userRepository = AppDataSource.getRepository(User);
   private settingRepository = AppDataSource.getRepository(Setting);
-  private tenantRepository = AppDataSource.getRepository(Tenant);
 
   register = async (req: Request, res: Response) => {
     try {
       const { email, password, firstName, lastName, role = 'USER' } = req.body;
 
-      // Get tenant context
-      const tenantId = req.tenantId;
-      
-      // Check if user already exists in this tenant
-      const whereCondition = req.isMultiTenantMode 
-        ? { email, tenantId }
-        : { email };
-      
-      const existingUser = await this.userRepository.findOne({ where: whereCondition });
+      const existingUser = await this.userRepository.findOne({ where: { email } });
       if (existingUser) {
         throw createError('User already exists', 409);
       }
 
-      // Hash password
       const hashedPassword = await bcrypt.hash(password, 12);
 
-      // Create user
       const user = this.userRepository.create({
         email,
         password: hashedPassword,
         firstName,
         lastName,
         role,
-        tenantId
       });
 
       await this.userRepository.save(user);
 
-      // Generate tokens
-      const accessToken = await this.generateAccessToken(user.id, user.tenantId || undefined);
-      const refreshToken = await this.generateRefreshToken(user.id, user.tenantId || undefined);
+      const accessToken = await this.generateAccessToken(user.id);
+      const refreshToken = await this.generateRefreshToken(user.id);
 
-      // Remove password from response
       const { password: _, ...userWithoutPassword } = user;
 
       res.status(201).json({
@@ -72,59 +56,25 @@ export class AuthController {
     try {
       const { email, password } = req.body;
 
-      // Find user with tenant context
-      const whereCondition = req.isMultiTenantMode 
-        ? { email, tenantId: req.tenantId, isActive: true }
-        : { email, isActive: true };
-
-      const user = await this.userRepository.findOne({ 
-        where: whereCondition
-        // relations: ['tenant'] // Commented out until relations are restored
+      const user = await this.userRepository.findOne({
+        where: { email, isActive: true }
       });
+
       if (!user) {
         throw createError('Invalid credentials', 401);
       }
 
-      // Check password
       const isPasswordValid = await bcrypt.compare(password, user.password);
       if (!isPasswordValid) {
         throw createError('Invalid credentials', 401);
       }
 
-      // Update last login
       user.lastLoginAt = new Date();
       await this.userRepository.save(user);
 
-      // 📧 SEND LOGIN NOTIFICATION (optional - you can enable/disable this)
-      try {
-        const userAgent = req.get('User-Agent') || 'Unknown Device';
-        const ip = req.ip || req.connection.remoteAddress || 'Unknown IP';
-        
-        // Extract basic device info
-        const device = userAgent.includes('Mobile') ? 'Mobile Device' : 
-                     userAgent.includes('Chrome') ? 'Chrome Browser' :
-                     userAgent.includes('Firefox') ? 'Firefox Browser' :
-                     userAgent.includes('Safari') ? 'Safari Browser' : 'Unknown Browser';
-        
-        // You can implement IP geolocation here if needed
-        const location = 'Unknown Location'; // For now, you'd need a geolocation service
-        
-        await notificationService.notifyNewLogin(
-          user.id,
-          location,
-          device,
-          ip
-        );
-      } catch (notificationError) {
-        console.error('Error sending login notification:', notificationError);
-        // Don't fail login if notification fails
-      }
+      const accessToken = await this.generateAccessToken(user.id);
+      const refreshToken = await this.generateRefreshToken(user.id);
 
-      // Generate tokens
-      const accessToken = await this.generateAccessToken(user.id, user.tenantId || undefined);
-      const refreshToken = await this.generateRefreshToken(user.id, user.tenantId || undefined);
-
-      // Remove password from response
       const { password: _, ...userWithoutPassword } = user;
 
       res.json({
@@ -150,19 +100,18 @@ export class AuthController {
         throw createError('Refresh token required', 401);
       }
 
-      const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET!) as { userId: string; tenantId?: string };
-      
-      const whereCondition = req.isMultiTenantMode 
-        ? { id: decoded.userId, tenantId: decoded.tenantId, isActive: true }
-        : { id: decoded.userId, isActive: true };
+      const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET!) as { userId: string };
 
-      const user = await this.userRepository.findOne({ where: whereCondition });
+      const user = await this.userRepository.findOne({
+        where: { id: decoded.userId, isActive: true }
+      });
+
       if (!user) {
         throw createError('Invalid refresh token', 401);
       }
 
-      const accessToken = await this.generateAccessToken(user.id, user.tenantId || undefined);
-      const newRefreshToken = await this.generateRefreshToken(user.id, user.tenantId || undefined);
+      const accessToken = await this.generateAccessToken(user.id);
+      const newRefreshToken = await this.generateRefreshToken(user.id);
 
       res.json({
         accessToken,
@@ -185,7 +134,7 @@ export class AuthController {
   updateProfile = async (req: AuthRequest, res: Response) => {
     try {
       const { firstName, lastName, bio, website, github, twitter, avatar } = req.body;
-      
+
       const user = req.user!;
       user.firstName = firstName || user.firstName;
       user.lastName = lastName || user.lastName;
@@ -207,90 +156,28 @@ export class AuthController {
     }
   };
 
-  // Temporary endpoint to test session timeout configuration
-  testSessionTimeout = async (req: AuthRequest, res: Response) => {
-    try {
-      const sessionTimeoutSetting = await this.settingRepository.findOne({
-        where: { key: 'sessionTimeout', category: SettingCategory.SECURITY }
-      });
-      
-      const sessionTimeoutMinutes = sessionTimeoutSetting ? parseInt(sessionTimeoutSetting.value) : 30;
-      const sessionTimeoutHours = sessionTimeoutMinutes / 60;
-      
-      // Generate a test token to show the actual expiration
-      const testToken = await this.generateAccessToken(req.user!.id, req.user!.tenantId || undefined);
-      
-      res.json({
-        message: 'Session timeout configuration',
-        sessionTimeoutMinutes,
-        sessionTimeoutHours,
-        settingValue: sessionTimeoutSetting?.value || 'not found',
-        testTokenGenerated: true,
-        note: 'The access token has been generated with the configured timeout'
-      });
-    } catch (error) {
-      res.status(500).json({ 
-        message: 'Internal server error', 
-        error: error instanceof Error ? error.message : 'Unknown error' 
-      });
-    }
-  };
-
-  private async generateAccessToken(userId: string, tenantId?: string): Promise<string> {
-    // Get session timeout from settings
+  private async generateAccessToken(userId: string): Promise<string> {
     const sessionTimeoutSetting = await this.settingRepository.findOne({
       where: { key: 'sessionTimeout', category: SettingCategory.SECURITY }
     });
-    
+
     const sessionTimeoutMinutes = sessionTimeoutSetting ? parseInt(sessionTimeoutSetting.value) : 30;
     const expiresIn = `${sessionTimeoutMinutes}m`;
-    
-    // Check if multi-tenancy is enabled
-    const multiTenancySetting = await this.settingRepository.findOne({
-      where: { key: 'multiTenancyEnabled', category: SettingCategory.ADVANCED }
-    });
-    
-    const isMultiTenant = multiTenancySetting?.value === 'true';
-    
-    const payload = isMultiTenant && tenantId 
-      ? { userId, tenantId }
-      : { userId };
-    
+
     const options: SignOptions = { expiresIn: expiresIn as any };
-    return jwt.sign(
-      payload,
-      process.env.JWT_SECRET!,
-      options
-    );
+    return jwt.sign({ userId }, process.env.JWT_SECRET!, options);
   }
 
-  private async generateRefreshToken(userId: string, tenantId?: string): Promise<string> {
-    // Refresh token should be longer than access token
-    // Use 7 days or 4x the session timeout, whichever is longer
+  private async generateRefreshToken(userId: string): Promise<string> {
     const sessionTimeoutSetting = await this.settingRepository.findOne({
       where: { key: 'sessionTimeout', category: SettingCategory.SECURITY }
     });
-    
+
     const sessionTimeoutMinutes = sessionTimeoutSetting ? parseInt(sessionTimeoutSetting.value) : 30;
-    const refreshTimeoutMinutes = Math.max(sessionTimeoutMinutes * 4, 7 * 24 * 60); // 4x session timeout or 7 days minimum
+    const refreshTimeoutMinutes = Math.max(sessionTimeoutMinutes * 4, 7 * 24 * 60);
     const expiresIn = `${refreshTimeoutMinutes}m`;
-    
-    // Check if multi-tenancy is enabled
-    const multiTenancySetting = await this.settingRepository.findOne({
-      where: { key: 'multiTenancyEnabled', category: SettingCategory.ADVANCED }
-    });
-    
-    const isMultiTenant = multiTenancySetting?.value === 'true';
-    
-    const payload = isMultiTenant && tenantId 
-      ? { userId, tenantId }
-      : { userId };
-    
+
     const options: SignOptions = { expiresIn: expiresIn as any };
-    return jwt.sign(
-      payload,
-      process.env.JWT_REFRESH_SECRET!,
-      options
-    );
+    return jwt.sign({ userId }, process.env.JWT_REFRESH_SECRET!, options);
   }
 }

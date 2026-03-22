@@ -2,12 +2,9 @@ import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateCol
 
 export enum SettingCategory {
   GENERAL = 'general',
-  PLUGINS = 'plugins',
   SECURITY = 'security',
   NOTIFICATIONS = 'notifications',
   ADVANCED = 'advanced',
-  DASHBOARD = 'dashboard',
-  EXTERNAL_APIS = 'external_apis'
 }
 
 @Entity('settings')
@@ -32,7 +29,7 @@ export class Setting {
   description?: string;
 
   @Column({ default: false })
-  isPublic: boolean; // Si es público, se puede acceder sin autenticación
+  isPublic: boolean;
 
   @CreateDateColumn()
   createdAt: Date;
@@ -40,4 +37,3 @@ export class Setting {
   @UpdateDateColumn()
   updatedAt: Date;
 }
-
