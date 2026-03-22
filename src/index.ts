@@ -14,6 +14,7 @@ import permissionRoutes from './routes/permissions';
 import roleRoutes from './routes/roles';
 import settingRoutes from './routes/settings';
 import translationRoutes from './routes/translations';
+import { recipeRoutes } from './routes/recipes';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -71,7 +72,7 @@ app.use('/api/permissions', permissionRoutes);
 app.use('/api/roles', roleRoutes);
 app.use('/api/settings', settingRoutes);
 app.use('/api/translations', translationRoutes);
-
+app.use('/api/recipes', recipeRoutes);
 app.use(errorHandler);
 app.use('*', (req, res) => {
   res.status(404).json({ message: 'Route not found' });

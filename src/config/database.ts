@@ -4,6 +4,12 @@ import { Role } from '../models/Role';
 import { Permission } from '../models/Permission';
 import { Setting } from '../models/Setting';
 import { Translation } from '../models/Translation';
+import { Recipe } from '../models/Recipe';
+import { RecipeCategory } from '../models/RecipeCategory';
+import { RecipeIngredient } from '../models/RecipeIngredient';
+import { RecipeTag } from '../models/RecipeTag';
+import { RecipeRating } from '../models/RecipeRating';
+import { RecipeFavourite } from '../models/RecipeFavourite';
 
 export const AppDataSource = new DataSource({
   type: 'postgres',
@@ -22,7 +28,7 @@ export const AppDataSource = new DataSource({
     connectionTimeoutMillis: 15000,
     idleTimeoutMillis: 10000,
   },
-  entities: [User, Role, Permission, Setting, Translation],
+  entities: [User, Role, Permission, Setting, Translation, Recipe, RecipeCategory, RecipeIngredient, RecipeTag, RecipeRating, RecipeFavourite],
   migrations: ['src/migrations/*.ts'],
   subscribers: [],
 });

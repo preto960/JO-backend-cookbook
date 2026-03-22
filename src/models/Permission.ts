@@ -8,6 +8,7 @@ export enum ResourceType {
   SETTINGS = 'SETTINGS',
   PROFILE = 'PROFILE',
   TRANSLATIONS = 'TRANSLATIONS',
+  RECIPE_BOOK = 'RECIPE_BOOK',
 }
 
 export enum PermissionAction {
