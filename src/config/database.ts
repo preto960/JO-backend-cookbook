@@ -32,7 +32,7 @@ export const AppDataSource = new DataSource({
     DashboardCard, DashboardBlock, Translation,
     ExternalApiConnection, Tenant
   ],
-  migrations: [],
+  migrations: ['src/migrations/*.ts'],
   subscribers: [],
 });
 
