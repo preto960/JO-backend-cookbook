@@ -71,6 +71,7 @@ export class RecipeController {
         .leftJoinAndSelect('r.category',    'category')
         .leftJoinAndSelect('r.tags',        'tags')
         .leftJoinAndSelect('r.creator',     'creator')
+        .leftJoinAndSelect('r.ratings',     'ratings')
         .loadRelationCountAndMap('r.ratingCount', 'r.ratings')
         .where('r.isActive = true');
 
@@ -93,8 +94,23 @@ export class RecipeController {
 
       const [recipes, total] = await qb.getManyAndCount();
 
+      // Calculate average rating for each recipe
+      const recipesWithAverage = recipes.map(recipe => {
+        const averageRating = recipe.ratings && recipe.ratings.length > 0
+          ? recipe.ratings.reduce((sum, r) => sum + r.score, 0) / recipe.ratings.length
+          : null;
+        
+        // Remove ratings array from response to keep it clean
+        const { ratings, ...recipeWithoutRatings } = recipe;
+        
+        return {
+          ...recipeWithoutRatings,
+          averageRating
+        };
+      });
+
       res.json({
-        recipes,
+        recipes: recipesWithAverage,
         pagination: {
           page: pageNum,
           limit: limitNum,
@@ -357,14 +373,29 @@ export class RecipeController {
 
       const [recipes, total] = await this.recipeRepo.findAndCount({
         where:    { createdBy: req.user!.id, isActive: true },
-        relations: ['category', 'tags'],
+        relations: ['category', 'tags', 'ratings'],
         order:    { createdAt: 'DESC' },
         skip:     (pageNum - 1) * limitNum,
         take:     limitNum,
       });
 
+      // Calculate average rating for each recipe
+      const recipesWithAverage = recipes.map(recipe => {
+        const averageRating = recipe.ratings && recipe.ratings.length > 0
+          ? recipe.ratings.reduce((sum, r) => sum + r.score, 0) / recipe.ratings.length
+          : null;
+        
+        // Remove ratings array from response to keep it clean
+        const { ratings, ...recipeWithoutRatings } = recipe;
+        
+        return {
+          ...recipeWithoutRatings,
+          averageRating
+        };
+      });
+
       res.json({
-        recipes,
+        recipes: recipesWithAverage,
         pagination: {
           page: pageNum, limit: limitNum, total,
           totalPages: Math.ceil(total / limitNum),
@@ -463,13 +494,26 @@ export class RecipeController {
     try {
       const favs = await this.favouriteRepo.find({
         where:    { userId: req.user!.id },
-        relations: ['recipe', 'recipe.category', 'recipe.tags'],
+        relations: ['recipe', 'recipe.category', 'recipe.tags', 'recipe.ratings'],
         order:    { createdAt: 'DESC' },
       });
 
       const recipes = favs
         .map((f) => f.recipe)
-        .filter((r) => r?.isActive && r?.isPublished);
+        .filter((r) => r?.isActive && r?.isPublished)
+        .map(recipe => {
+          const averageRating = recipe.ratings && recipe.ratings.length > 0
+            ? recipe.ratings.reduce((sum, r) => sum + r.score, 0) / recipe.ratings.length
+            : null;
+          
+          // Remove ratings array from response to keep it clean
+          const { ratings, ...recipeWithoutRatings } = recipe;
+          
+          return {
+            ...recipeWithoutRatings,
+            averageRating
+          };
+        });
 
       res.json({ recipes });
     } catch (error) {
