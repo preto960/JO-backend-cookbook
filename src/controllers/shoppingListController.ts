@@ -260,62 +260,96 @@ export class ShoppingListController {
       const { id } = req.params;
       const userId = req.user!.id;
 
-      // First, get the shopping list
-      const shoppingList = await this.shoppingListRepo.findOne({
-        where: { id, userId },
-        select: ['id', 'name', 'description', 'isActive', 'userId', 'createdAt', 'updatedAt']
-      });
+      // Use raw SQL to ensure we get the most up-to-date data
+      const listQuery = `
+        SELECT 
+          sl.id,
+          sl.name,
+          sl.description,
+          sl.is_active,
+          sl.user_id,
+          sl.created_at,
+          sl.updated_at,
+          COALESCE(
+            json_agg(
+              json_build_object(
+                'id', sli.id,
+                'name', sli.name,
+                'quantity', sli.quantity,
+                'unit', sli.unit,
+                'notes', sli.notes,
+                'isCompleted', sli.is_completed,  -- ← Ensure this is correct
+                'category', sli.category,
+                'displayOrder', sli.display_order,
+                'createdAt', sli.created_at,
+                'updatedAt', sli.updated_at
+              ) ORDER BY sli.display_order ASC, sli.created_at ASC
+            ) FILTER (WHERE sli.id IS NOT NULL), 
+            '[]'::json
+          ) as items
+        FROM shopping_lists sl
+        LEFT JOIN shopping_list_items sli ON sl.id = sli.shopping_list_id
+        WHERE sl.id = $1 AND sl.user_id = $2
+        GROUP BY sl.id, sl.name, sl.description, sl.is_active, sl.user_id, sl.created_at, sl.updated_at
+      `;
 
-      if (!shoppingList) {
+      const result = await this.shoppingListRepo.query(listQuery, [id, userId]);
+
+      if (result.length === 0) {
         return res.status(404).json({ error: 'Shopping list not found' });
       }
 
-      // Get items with proper ordering
-      const items = await this.itemRepo.find({
-        where: { shoppingListId: id },
-        select: ['id', 'name', 'quantity', 'unit', 'notes', 'category', 'isCompleted', 'displayOrder', 'createdAt', 'updatedAt'],
-        order: { 
-          displayOrder: 'ASC',
-          createdAt: 'ASC'
-        }
-      });
+      const listData = result[0];
+      const items = listData.items || [];
 
       // Get linked recipes (optional)
-      const recipes = await this.shoppingListRecipeRepo.find({
-        where: { shoppingListId: id },
-        relations: ['recipe'],
-        select: {
-          id: true,
-          recipeId: true,
-          createdAt: true,
+      const recipesQuery = `
+        SELECT 
+          slr.id,
+          slr.recipe_id,
+          slr.created_at,
+          r.id as recipe_id,
+          r.title as recipe_title,
+          r.slug as recipe_slug
+        FROM shopping_list_recipes slr
+        INNER JOIN recipes r ON slr.recipe_id = r.id
+        WHERE slr.shopping_list_id = $1
+      `;
+
+      const recipesResult = await this.shoppingListRecipeRepo.query(recipesQuery, [id]);
+
+      // Format the response
+      const shoppingList = {
+        id: listData.id,
+        name: listData.name,
+        description: listData.description,
+        isActive: listData.is_active,
+        userId: listData.user_id,
+        createdAt: listData.created_at,
+        updatedAt: listData.updated_at,
+        items: items,
+        recipes: recipesResult.map((r: any) => ({
+          id: r.id,
+          recipeId: r.recipe_id,
           recipe: {
-            id: true,
-            title: true,
-            slug: true
-          }
-        }
-      });
+            id: r.recipe_id,
+            title: r.recipe_title,
+            slug: r.recipe_slug
+          },
+          createdAt: r.created_at
+        })),
+        itemCount: items.length,
+        completedCount: items.filter((item: any) => item.isCompleted === true).length
+      };
 
-      // Set cache headers
+      // Set cache headers (shorter cache since data changes frequently)
       res.set({
-        'Cache-Control': 'public, max-age=300', // Cache for 5 minutes
-        'ETag': `"${id}-${shoppingList.updatedAt.getTime()}"`
+        'Cache-Control': 'public, max-age=60', // Cache for 1 minute
+        'ETag': `"${id}-${listData.updated_at}"`
       });
 
-      res.json({
-        shoppingList: {
-          ...shoppingList,
-          items,
-          recipes: recipes.map(r => ({
-            id: r.id,
-            recipeId: r.recipeId,
-            recipe: r.recipe,
-            createdAt: r.createdAt
-          })),
-          itemCount: items.length,
-          completedCount: items.filter(item => item.isCompleted).length
-        }
-      });
+      res.json({ shoppingList });
+
     } catch (error) {
       console.error('Failed to fetch shopping list:', error);
       res.status(500).json({ error: 'Failed to fetch shopping list' });
@@ -737,53 +771,63 @@ export class ShoppingListController {
       const { id, itemId } = req.params;
       const userId = req.user!.id;
 
-      // First verify list ownership
-      const shoppingList = await this.shoppingListRepo.findOne({
-        where: { id, userId },
-        select: ['id']
-      });
+      // 1. Verify ownership and get current item state with raw SQL
+      const currentItemQuery = `
+        SELECT sli.*, sl.user_id 
+        FROM shopping_list_items sli
+        INNER JOIN shopping_lists sl ON sli.shopping_list_id = sl.id
+        WHERE sli.id = $1 AND sli.shopping_list_id = $2 AND sl.user_id = $3
+      `;
+      
+      const currentItemResult = await this.itemRepo.query(currentItemQuery, [itemId, id, userId]);
 
-      if (!shoppingList) {
-        return res.status(404).json({ error: 'Shopping list not found' });
+      if (currentItemResult.length === 0) {
+        return res.status(404).json({ error: 'Item not found or access denied' });
       }
 
-      // Get the current item state
-      const item = await this.itemRepo.findOne({
-        where: { id: itemId, shoppingListId: id },
-        select: ['id', 'isCompleted', 'name']
-      });
+      const currentItem = currentItemResult[0];
+      const newCompletedState = !currentItem.is_completed;
 
-      if (!item) {
-        return res.status(404).json({ error: 'Item not found' });
+      // 2. CRITICAL: Update in database with raw SQL and return updated data
+      const updateQuery = `
+        UPDATE shopping_list_items 
+        SET is_completed = $1, updated_at = CURRENT_TIMESTAMP 
+        WHERE id = $2 
+        RETURNING *
+      `;
+
+      const updatedResult = await this.itemRepo.query(updateQuery, [newCompletedState, itemId]);
+
+      if (updatedResult.length === 0) {
+        return res.status(500).json({ error: 'Failed to update item' });
       }
 
-      // Calculate new state
-      const newCompletedState = !item.isCompleted;
+      // 3. Format the response with the updated data
+      const result = updatedResult[0];
+      const formattedItem = {
+        id: result.id,
+        shoppingListId: result.shopping_list_id,
+        name: result.name,
+        quantity: result.quantity,
+        unit: result.unit,
+        notes: result.notes,
+        isCompleted: result.is_completed, // ← This must be the new value
+        category: result.category,
+        displayOrder: result.display_order,
+        createdAt: result.created_at,
+        updatedAt: result.updated_at
+      };
 
-      // Use direct update query to ensure database persistence
-      const updateResult = await this.itemRepo.update(
-        { id: itemId, shoppingListId: id },
-        { isCompleted: newCompletedState }
-      );
-
-      if (updateResult.affected === 0) {
-        return res.status(404).json({ error: 'Failed to update item' });
-      }
-
-      // Get the updated item to return
-      const updatedItem = await this.itemRepo.findOne({
-        where: { id: itemId }
-      });
-
-      res.json({ 
-        item: updatedItem,
-        message: newCompletedState ? 'Item marked as completed' : 'Item marked as pending',
+      res.json({
+        item: formattedItem,
+        message: `Item marked as ${newCompletedState ? 'completed' : 'pending'}`,
         debug: {
-          previousState: item.isCompleted,
+          previousState: currentItem.is_completed,
           newState: newCompletedState,
-          affectedRows: updateResult.affected
+          actualDatabaseValue: result.is_completed
         }
       });
+
     } catch (error) {
       console.error('Failed to toggle item:', error);
       console.error('Error details:', error);
