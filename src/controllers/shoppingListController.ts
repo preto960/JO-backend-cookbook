@@ -126,44 +126,89 @@ export class ShoppingListController {
     try {
       const userId = req.user!.id;
       const page = parseInt(req.query.page as string) || 1;
-      const limit = Math.min(parseInt(req.query.limit as string) || 10, 20); // Reduced max limit
-      const skip = (page - 1) * limit;
+      const limit = Math.min(parseInt(req.query.limit as string) || 10, 20);
+      const search = req.query.search as string;
+      const isActive = req.query.isActive as string;
+      const offset = (page - 1) * limit;
 
-      // Don't load items in list view to reduce memory usage
-      const [lists, total] = await this.shoppingListRepo.findAndCount({
-        where: { userId, isActive: true }, // Only active lists
-        select: ['id', 'name', 'description', 'isActive', 'userId', 'createdAt', 'updatedAt'],
-        order: { updatedAt: 'DESC' },
-        skip,
-        take: limit
-      });
+      // Build the query with proper joins and counts
+      let queryBuilder = this.shoppingListRepo
+        .createQueryBuilder('sl')
+        .leftJoin('sl.items', 'sli')
+        .select([
+          'sl.id',
+          'sl.name', 
+          'sl.description',
+          'sl.isActive',
+          'sl.userId',
+          'sl.createdAt',
+          'sl.updatedAt',
+          'COUNT(sli.id) as itemCount',
+          'COUNT(CASE WHEN sli.isCompleted = true THEN 1 END) as completedCount'
+        ])
+        .where('sl.userId = :userId', { userId })
+        .groupBy('sl.id, sl.name, sl.description, sl.isActive, sl.userId, sl.createdAt, sl.updatedAt')
+        .orderBy('sl.updatedAt', 'DESC')
+        .limit(limit)
+        .offset(offset);
 
-      // Add item counts separately if needed
-      const listsWithCounts = await Promise.all(
-        lists.map(async (list) => {
-          const itemCount = await this.itemRepo.count({
-            where: { shoppingListId: list.id }
-          });
-          const completedCount = await this.itemRepo.count({
-            where: { shoppingListId: list.id, isCompleted: true }
-          });
-          
-          return {
-            ...list,
-            itemCount,
-            completedCount
-          };
-        })
-      );
+      // Add search filter
+      if (search && search.trim()) {
+        queryBuilder = queryBuilder.andWhere('sl.name ILIKE :search', { 
+          search: `%${search.trim()}%` 
+        });
+      }
+
+      // Add active filter
+      if (isActive !== undefined) {
+        queryBuilder = queryBuilder.andWhere('sl.isActive = :isActive', { 
+          isActive: isActive === 'true' 
+        });
+      }
+
+      // Execute the main query
+      const rawResults = await queryBuilder.getRawMany();
+
+      // Count total records (separate query for accuracy)
+      let countBuilder = this.shoppingListRepo
+        .createQueryBuilder('sl')
+        .where('sl.userId = :userId', { userId });
+
+      if (search && search.trim()) {
+        countBuilder = countBuilder.andWhere('sl.name ILIKE :search', { 
+          search: `%${search.trim()}%` 
+        });
+      }
+
+      if (isActive !== undefined) {
+        countBuilder = countBuilder.andWhere('sl.isActive = :isActive', { 
+          isActive: isActive === 'true' 
+        });
+      }
+
+      const total = await countBuilder.getCount();
+
+      // Format the response
+      const shoppingLists = rawResults.map(row => ({
+        id: row.sl_id,
+        name: row.sl_name,
+        description: row.sl_description,
+        isActive: row.sl_isActive,
+        userId: row.sl_userId,
+        createdAt: row.sl_createdAt,
+        updatedAt: row.sl_updatedAt,
+        itemCount: parseInt(row.itemcount) || 0,
+        completedCount: parseInt(row.completedcount) || 0
+      }));
 
       // Set cache headers
       res.set({
-        'Cache-Control': 'public, max-age=60', // Cache for 1 minute
-        'ETag': `"${userId}-${total}-${lists[0]?.updatedAt?.getTime() || 0}"`
+        'Cache-Control': 'public, max-age=60',
+        'ETag': `"${userId}-${total}-${shoppingLists[0]?.updatedAt?.getTime() || 0}"`
       });
 
       res.json({
-        shoppingLists: listsWithCounts,
+        shoppingLists,
         pagination: {
           page,
           limit,
@@ -213,22 +258,65 @@ export class ShoppingListController {
       const { id } = req.params;
       const userId = req.user!.id;
 
+      // First, get the shopping list
       const shoppingList = await this.shoppingListRepo.findOne({
         where: { id, userId },
-        relations: ['items', 'recipes', 'recipes.recipe'],
-        order: {
-          items: { displayOrder: 'ASC' }
-        }
+        select: ['id', 'name', 'description', 'isActive', 'userId', 'createdAt', 'updatedAt']
       });
 
       if (!shoppingList) {
         return res.status(404).json({ error: 'Shopping list not found' });
       }
 
-      res.json({ shoppingList });
+      // Get items with proper ordering
+      const items = await this.itemRepo.find({
+        where: { shoppingListId: id },
+        select: ['id', 'name', 'quantity', 'unit', 'notes', 'category', 'isCompleted', 'displayOrder', 'createdAt', 'updatedAt'],
+        order: { 
+          displayOrder: 'ASC',
+          createdAt: 'ASC'
+        }
+      });
+
+      // Get linked recipes (optional)
+      const recipes = await this.shoppingListRecipeRepo.find({
+        where: { shoppingListId: id },
+        relations: ['recipe'],
+        select: {
+          id: true,
+          recipeId: true,
+          createdAt: true,
+          recipe: {
+            id: true,
+            title: true,
+            slug: true
+          }
+        }
+      });
+
+      // Set cache headers
+      res.set({
+        'Cache-Control': 'public, max-age=300', // Cache for 5 minutes
+        'ETag': `"${id}-${shoppingList.updatedAt.getTime()}"`
+      });
+
+      res.json({
+        shoppingList: {
+          ...shoppingList,
+          items,
+          recipes: recipes.map(r => ({
+            id: r.id,
+            recipeId: r.recipeId,
+            recipe: r.recipe,
+            createdAt: r.createdAt
+          })),
+          itemCount: items.length,
+          completedCount: items.filter(item => item.isCompleted).length
+        }
+      });
     } catch (error) {
       console.error('Failed to fetch shopping list:', error);
-      throw createError('Failed to fetch shopping list', 500);
+      res.status(500).json({ error: 'Failed to fetch shopping list' });
     }
   }
 
@@ -524,6 +612,7 @@ export class ShoppingListController {
       const userId = req.user!.id;
       const payload: CreateItemPayload = req.body;
 
+      // Validation
       if (!payload.name?.trim()) {
         return res.status(400).json({ error: 'Item name is required' });
       }
@@ -532,36 +621,46 @@ export class ShoppingListController {
         return res.status(400).json({ error: 'Quantity is required' });
       }
 
+      // Verify list ownership
       const shoppingList = await this.shoppingListRepo.findOne({
-        where: { id, userId }
+        where: { id, userId },
+        select: ['id']
       });
 
       if (!shoppingList) {
         return res.status(404).json({ error: 'Shopping list not found' });
       }
 
-      // Get max display order
-      const maxOrder = await this.itemRepo
+      // Get max display order efficiently
+      const maxOrderResult = await this.itemRepo
         .createQueryBuilder('item')
-        .select('MAX(item.displayOrder)', 'max')
+        .select('COALESCE(MAX(item.displayOrder), -1)', 'maxOrder')
         .where('item.shoppingListId = :id', { id })
         .getRawOne();
 
+      const nextOrder = (parseInt(maxOrderResult.maxOrder) || -1) + 1;
+
+      // Create and save item
       const item = this.itemRepo.create({
         shoppingListId: id,
         name: payload.name.trim(),
         quantity: payload.quantity.trim(),
-        unit: payload.unit?.trim(),
-        notes: payload.notes?.trim(),
-        category: payload.category?.trim(),
-        displayOrder: payload.displayOrder ?? ((maxOrder?.max || -1) + 1)
+        unit: payload.unit?.trim() || undefined,
+        notes: payload.notes?.trim() || undefined,
+        category: payload.category?.trim() || undefined,
+        displayOrder: payload.displayOrder ?? nextOrder,
+        isCompleted: false
       });
 
       const saved = await this.itemRepo.save(item);
-      res.status(201).json({ item: saved });
+      
+      res.status(201).json({ 
+        item: saved,
+        message: 'Item added successfully'
+      });
     } catch (error) {
       console.error('Failed to add item:', error);
-      throw createError('Failed to add item', 500);
+      res.status(500).json({ error: 'Failed to add item' });
     }
   }
 
@@ -636,29 +735,32 @@ export class ShoppingListController {
       const { id, itemId } = req.params;
       const userId = req.user!.id;
 
-      const shoppingList = await this.shoppingListRepo.findOne({
-        where: { id, userId }
-      });
+      // Verify ownership in a single query
+      const result = await this.itemRepo
+        .createQueryBuilder('item')
+        .innerJoin('item.shoppingList', 'list')
+        .where('item.id = :itemId', { itemId })
+        .andWhere('list.id = :listId', { listId: id })
+        .andWhere('list.userId = :userId', { userId })
+        .getOne();
 
-      if (!shoppingList) {
-        return res.status(404).json({ error: 'Shopping list not found' });
+      if (!result) {
+        return res.status(404).json({ error: 'Item not found or access denied' });
       }
 
-      const item = await this.itemRepo.findOne({
-        where: { id: itemId, shoppingListId: id }
+      // Toggle completion status
+      const updatedItem = await this.itemRepo.save({
+        ...result,
+        isCompleted: !result.isCompleted
       });
 
-      if (!item) {
-        return res.status(404).json({ error: 'Item not found' });
-      }
-
-      item.isCompleted = !item.isCompleted;
-      const saved = await this.itemRepo.save(item);
-
-      res.json({ item: saved });
+      res.json({ 
+        item: updatedItem,
+        message: updatedItem.isCompleted ? 'Item marked as completed' : 'Item marked as pending'
+      });
     } catch (error) {
       console.error('Failed to toggle item:', error);
-      throw createError('Failed to toggle item', 500);
+      res.status(500).json({ error: 'Failed to toggle item' });
     }
   }
 
@@ -668,27 +770,26 @@ export class ShoppingListController {
       const { id, itemId } = req.params;
       const userId = req.user!.id;
 
-      const shoppingList = await this.shoppingListRepo.findOne({
-        where: { id, userId }
-      });
+      // Verify ownership and delete in one operation
+      const deleteResult = await this.itemRepo
+        .createQueryBuilder('item')
+        .delete()
+        .where('item.id = :itemId', { itemId })
+        .andWhere('item.shoppingListId = :listId', { listId: id })
+        .andWhere('EXISTS (SELECT 1 FROM shopping_lists sl WHERE sl.id = :listId AND sl.userId = :userId)', { 
+          listId: id, 
+          userId 
+        })
+        .execute();
 
-      if (!shoppingList) {
-        return res.status(404).json({ error: 'Shopping list not found' });
-      }
-
-      const result = await this.itemRepo.delete({
-        id: itemId,
-        shoppingListId: id
-      });
-
-      if (result.affected === 0) {
-        return res.status(404).json({ error: 'Item not found' });
+      if (deleteResult.affected === 0) {
+        return res.status(404).json({ error: 'Item not found or access denied' });
       }
 
       res.status(204).send();
     } catch (error) {
       console.error('Failed to delete item:', error);
-      throw createError('Failed to delete item', 500);
+      res.status(500).json({ error: 'Failed to delete item' });
     }
   }
 
@@ -703,36 +804,148 @@ export class ShoppingListController {
         return res.status(400).json({ error: 'Items array is required' });
       }
 
+      // Verify list ownership
       const shoppingList = await this.shoppingListRepo.findOne({
-        where: { id, userId }
+        where: { id, userId },
+        select: ['id']
       });
 
       if (!shoppingList) {
         return res.status(404).json({ error: 'Shopping list not found' });
       }
 
-      // Update display orders
-      await Promise.all(
-        payload.items.map(item =>
-          this.itemRepo.update(
-            { id: item.id, shoppingListId: id },
-            { displayOrder: item.displayOrder }
-          )
+      // Batch update display orders efficiently
+      const updatePromises = payload.items.map(item =>
+        this.itemRepo.update(
+          { id: item.id, shoppingListId: id },
+          { displayOrder: item.displayOrder }
         )
       );
 
-      const updated = await this.shoppingListRepo.findOne({
-        where: { id },
-        relations: ['items'],
-        order: {
-          items: { displayOrder: 'ASC' }
-        }
-      });
+      await Promise.all(updatePromises);
 
-      res.json({ shoppingList: updated });
+      res.json({ 
+        message: 'Items reordered successfully',
+        updatedCount: payload.items.length
+      });
     } catch (error) {
       console.error('Failed to reorder items:', error);
-      throw createError('Failed to reorder items', 500);
+      res.status(500).json({ error: 'Failed to reorder items' });
+    }
+  }
+
+  // PATCH /api/shopping-lists/:id/items/bulk - Bulk operations on items
+  async bulkUpdateItems(req: AuthRequest, res: Response) {
+    try {
+      const { id } = req.params;
+      const userId = req.user!.id;
+      const { action, itemIds } = req.body;
+
+      if (!action || !itemIds?.length) {
+        return res.status(400).json({ error: 'Action and itemIds are required' });
+      }
+
+      // Verify list ownership
+      const shoppingList = await this.shoppingListRepo.findOne({
+        where: { id, userId },
+        select: ['id']
+      });
+
+      if (!shoppingList) {
+        return res.status(404).json({ error: 'Shopping list not found' });
+      }
+
+      let updateResult;
+      let message;
+
+      switch (action) {
+        case 'complete':
+          updateResult = await this.itemRepo.update(
+            { id: In(itemIds), shoppingListId: id },
+            { isCompleted: true }
+          );
+          message = `${updateResult.affected} items marked as completed`;
+          break;
+
+        case 'uncomplete':
+          updateResult = await this.itemRepo.update(
+            { id: In(itemIds), shoppingListId: id },
+            { isCompleted: false }
+          );
+          message = `${updateResult.affected} items marked as pending`;
+          break;
+
+        case 'delete':
+          updateResult = await this.itemRepo.delete({
+            id: In(itemIds),
+            shoppingListId: id
+          });
+          message = `${updateResult.affected} items deleted`;
+          break;
+
+        default:
+          return res.status(400).json({ error: 'Invalid action. Use: complete, uncomplete, or delete' });
+      }
+
+      res.json({
+        message,
+        affectedCount: updateResult.affected || 0
+      });
+    } catch (error) {
+      console.error('Failed to perform bulk operation:', error);
+      res.status(500).json({ error: 'Failed to perform bulk operation' });
+    }
+  }
+
+  // GET /api/shopping-lists/:id/stats - Get shopping list statistics
+  async getShoppingListStats(req: AuthRequest, res: Response) {
+    try {
+      const { id } = req.params;
+      const userId = req.user!.id;
+
+      // Verify ownership and get stats in one query
+      const stats = await this.itemRepo
+        .createQueryBuilder('item')
+        .innerJoin('item.shoppingList', 'list')
+        .select([
+          'COUNT(item.id) as totalItems',
+          'COUNT(CASE WHEN item.isCompleted = true THEN 1 END) as completedItems',
+          'COUNT(CASE WHEN item.isCompleted = false THEN 1 END) as pendingItems',
+          'COUNT(DISTINCT item.category) as categoriesCount'
+        ])
+        .where('list.id = :listId', { listId: id })
+        .andWhere('list.userId = :userId', { userId })
+        .getRawOne();
+
+      if (!stats || parseInt(stats.totalitems) === 0) {
+        // Check if list exists
+        const listExists = await this.shoppingListRepo.findOne({
+          where: { id, userId },
+          select: ['id']
+        });
+
+        if (!listExists) {
+          return res.status(404).json({ error: 'Shopping list not found' });
+        }
+      }
+
+      const totalItems = parseInt(stats.totalitems) || 0;
+      const completedItems = parseInt(stats.completeditems) || 0;
+      const pendingItems = parseInt(stats.pendingitems) || 0;
+      const categoriesCount = parseInt(stats.categoriescount) || 0;
+
+      res.json({
+        stats: {
+          totalItems,
+          completedItems,
+          pendingItems,
+          categoriesCount,
+          completionPercentage: totalItems > 0 ? Math.round((completedItems / totalItems) * 100) : 0
+        }
+      });
+    } catch (error) {
+      console.error('Failed to get shopping list stats:', error);
+      res.status(500).json({ error: 'Failed to get shopping list stats' });
     }
   }
 }

@@ -38,4 +38,8 @@ router.patch('/:id/items/:itemId/toggle', shoppingListController.toggleItem.bind
 router.delete('/:id/items/:itemId', shoppingListController.deleteItem.bind(shoppingListController));
 router.put('/:id/items/reorder', shoppingListController.reorderItems.bind(shoppingListController));
 
+// Bulk operations and stats
+router.patch('/:id/items/bulk', shoppingListController.bulkUpdateItems.bind(shoppingListController));
+router.get('/:id/stats', shoppingListController.getShoppingListStats.bind(shoppingListController));
+
 export { router as shoppingListRoutes };
