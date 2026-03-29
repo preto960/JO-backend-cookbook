@@ -93,7 +93,7 @@ function groupIngredients(recipes: Recipe[]): GroupedIngredient[] {
           name: ingredient.name,
           totalQuantity: ingredient.quantity,
           unit: ingredient.unit,
-          category: ingredient.category,
+          category: undefined, // RecipeIngredient doesn't have category
           fromRecipes: [recipe.title]
         });
       }
@@ -135,7 +135,8 @@ export class ShoppingListController {
         }
       });
     } catch (error) {
-      throw createError('Failed to fetch shopping lists', 500, error);
+      console.error('Failed to fetch shopping lists:', error);
+      throw createError('Failed to fetch shopping lists', 500);
     }
   }
 
@@ -164,7 +165,8 @@ export class ShoppingListController {
 
       res.status(201).json({ shoppingList: result });
     } catch (error) {
-      throw createError('Failed to create shopping list', 500, error);
+      console.error('Failed to create shopping list:', error);
+      throw createError('Failed to create shopping list', 500);
     }
   }
 
@@ -188,7 +190,8 @@ export class ShoppingListController {
 
       res.json({ shoppingList });
     } catch (error) {
-      throw createError('Failed to fetch shopping list', 500, error);
+      console.error('Failed to fetch shopping list:', error);
+      throw createError('Failed to fetch shopping list', 500);
     }
   }
 
@@ -215,7 +218,7 @@ export class ShoppingListController {
       }
 
       if (payload.description !== undefined) {
-        shoppingList.description = payload.description?.trim() || null;
+        shoppingList.description = payload.description?.trim() || undefined;
       }
 
       if (payload.isActive !== undefined) {
@@ -234,7 +237,8 @@ export class ShoppingListController {
 
       res.json({ shoppingList: updated });
     } catch (error) {
-      throw createError('Failed to update shopping list', 500, error);
+      console.error('Failed to update shopping list:', error);
+      throw createError('Failed to update shopping list', 500);
     }
   }
 
@@ -252,7 +256,8 @@ export class ShoppingListController {
 
       res.status(204).send();
     } catch (error) {
-      throw createError('Failed to delete shopping list', 500, error);
+      console.error('Failed to delete shopping list:', error);
+      throw createError('Failed to delete shopping list', 500);
     }
   }
 
@@ -331,7 +336,8 @@ export class ShoppingListController {
 
       res.status(201).json({ shoppingList: result });
     } catch (error) {
-      throw createError('Failed to generate shopping list', 500, error);
+      console.error('Failed to generate shopping list:', error);
+      throw createError('Failed to generate shopping list', 500);
     }
   }
 
@@ -400,7 +406,8 @@ export class ShoppingListController {
 
       res.status(201).json({ shoppingList: result });
     } catch (error) {
-      throw createError('Failed to duplicate shopping list', 500, error);
+      console.error('Failed to duplicate shopping list:', error);
+      throw createError('Failed to duplicate shopping list', 500);
     }
   }
 
@@ -434,7 +441,8 @@ export class ShoppingListController {
 
       res.json({ shoppingList: updated });
     } catch (error) {
-      throw createError('Failed to toggle all items', 500, error);
+      console.error('Failed to toggle all items:', error);
+      throw createError('Failed to toggle all items', 500);
     }
   }
 
@@ -467,7 +475,8 @@ export class ShoppingListController {
 
       res.json({ shoppingList: updated });
     } catch (error) {
-      throw createError('Failed to clear completed items', 500, error);
+      console.error('Failed to clear completed items:', error);
+      throw createError('Failed to clear completed items', 500);
     }
   }
 
@@ -514,7 +523,8 @@ export class ShoppingListController {
       const saved = await this.itemRepo.save(item);
       res.status(201).json({ item: saved });
     } catch (error) {
-      throw createError('Failed to add item', 500, error);
+      console.error('Failed to add item:', error);
+      throw createError('Failed to add item', 500);
     }
   }
 
@@ -556,15 +566,15 @@ export class ShoppingListController {
       }
 
       if (payload.unit !== undefined) {
-        item.unit = payload.unit?.trim() || null;
+        item.unit = payload.unit?.trim() || undefined;
       }
 
       if (payload.notes !== undefined) {
-        item.notes = payload.notes?.trim() || null;
+        item.notes = payload.notes?.trim() || undefined;
       }
 
       if (payload.category !== undefined) {
-        item.category = payload.category?.trim() || null;
+        item.category = payload.category?.trim() || undefined;
       }
 
       if (payload.isCompleted !== undefined) {
@@ -578,7 +588,8 @@ export class ShoppingListController {
       const saved = await this.itemRepo.save(item);
       res.json({ item: saved });
     } catch (error) {
-      throw createError('Failed to update item', 500, error);
+      console.error('Failed to update item:', error);
+      throw createError('Failed to update item', 500);
     }
   }
 
@@ -609,7 +620,8 @@ export class ShoppingListController {
 
       res.json({ item: saved });
     } catch (error) {
-      throw createError('Failed to toggle item', 500, error);
+      console.error('Failed to toggle item:', error);
+      throw createError('Failed to toggle item', 500);
     }
   }
 
@@ -638,7 +650,8 @@ export class ShoppingListController {
 
       res.status(204).send();
     } catch (error) {
-      throw createError('Failed to delete item', 500, error);
+      console.error('Failed to delete item:', error);
+      throw createError('Failed to delete item', 500);
     }
   }
 
@@ -681,7 +694,8 @@ export class ShoppingListController {
 
       res.json({ shoppingList: updated });
     } catch (error) {
-      throw createError('Failed to reorder items', 500, error);
+      console.error('Failed to reorder items:', error);
+      throw createError('Failed to reorder items', 500);
     }
   }
 }
