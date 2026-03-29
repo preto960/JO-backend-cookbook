@@ -109,24 +109,61 @@ export class ShoppingListController {
   private recipeRepo = AppDataSource.getRepository(Recipe);
   private shoppingListRecipeRepo = AppDataSource.getRepository(ShoppingListRecipe);
 
+  // Health check endpoint
+  async healthCheck(req: AuthRequest, res: Response) {
+    try {
+      // Simple query to check database connectivity
+      await this.shoppingListRepo.count({ where: { userId: req.user!.id }, take: 1 });
+      res.json({ status: 'ok', timestamp: new Date().toISOString() });
+    } catch (error) {
+      console.error('Shopping lists health check failed:', error);
+      res.status(503).json({ status: 'error', message: 'Service unavailable' });
+    }
+  }
+
   // GET /api/shopping-lists - List user's shopping lists
   async getShoppingLists(req: AuthRequest, res: Response) {
     try {
       const userId = req.user!.id;
       const page = parseInt(req.query.page as string) || 1;
-      const limit = Math.min(parseInt(req.query.limit as string) || 10, 50);
+      const limit = Math.min(parseInt(req.query.limit as string) || 10, 20); // Reduced max limit
       const skip = (page - 1) * limit;
 
+      // Don't load items in list view to reduce memory usage
       const [lists, total] = await this.shoppingListRepo.findAndCount({
-        where: { userId },
-        relations: ['items'],
+        where: { userId, isActive: true }, // Only active lists
+        select: ['id', 'name', 'description', 'isActive', 'userId', 'createdAt', 'updatedAt'],
         order: { updatedAt: 'DESC' },
         skip,
         take: limit
       });
 
+      // Add item counts separately if needed
+      const listsWithCounts = await Promise.all(
+        lists.map(async (list) => {
+          const itemCount = await this.itemRepo.count({
+            where: { shoppingListId: list.id }
+          });
+          const completedCount = await this.itemRepo.count({
+            where: { shoppingListId: list.id, isCompleted: true }
+          });
+          
+          return {
+            ...list,
+            itemCount,
+            completedCount
+          };
+        })
+      );
+
+      // Set cache headers
+      res.set({
+        'Cache-Control': 'public, max-age=60', // Cache for 1 minute
+        'ETag': `"${userId}-${total}-${lists[0]?.updatedAt?.getTime() || 0}"`
+      });
+
       res.json({
-        shoppingLists: lists,
+        shoppingLists: listsWithCounts,
         pagination: {
           page,
           limit,
@@ -136,7 +173,7 @@ export class ShoppingListController {
       });
     } catch (error) {
       console.error('Failed to fetch shopping lists:', error);
-      throw createError('Failed to fetch shopping lists', 500);
+      res.status(500).json({ error: 'Failed to fetch shopping lists' });
     }
   }
 

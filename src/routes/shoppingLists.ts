@@ -2,12 +2,19 @@ import { Router } from 'express';
 import { ShoppingListController } from '../controllers/shoppingListController';
 import { authenticateToken } from '../middleware/auth';
 import { checkShoppingListOwnership } from '../middleware/shoppingListPermission';
+import { shoppingListRateLimit, shoppingListGenerateRateLimit } from '../middleware/rateLimitShoppingLists';
 
 const router = Router();
 const shoppingListController = new ShoppingListController();
 
-// All routes require authentication
+// Health check (no auth required)
+router.get('/health', shoppingListController.healthCheck.bind(shoppingListController));
+
+// All other routes require authentication
 router.use(authenticateToken);
+
+// Apply rate limiting to all shopping list routes
+router.use(shoppingListRateLimit);
 
 // Shopping Lists CRUD
 router.get('/', shoppingListController.getShoppingLists.bind(shoppingListController));
@@ -16,8 +23,8 @@ router.get('/:id', shoppingListController.getShoppingListById.bind(shoppingListC
 router.put('/:id', shoppingListController.updateShoppingList.bind(shoppingListController));
 router.delete('/:id', shoppingListController.deleteShoppingList.bind(shoppingListController));
 
-// Generate from recipes
-router.post('/generate', shoppingListController.generateShoppingListFromRecipes.bind(shoppingListController));
+// Generate from recipes (with stricter rate limiting)
+router.post('/generate', shoppingListGenerateRateLimit, shoppingListController.generateShoppingListFromRecipes.bind(shoppingListController));
 
 // Shopping list utilities
 router.post('/:id/duplicate', shoppingListController.duplicateShoppingList.bind(shoppingListController));
