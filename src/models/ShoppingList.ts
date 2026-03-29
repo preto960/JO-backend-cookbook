@@ -7,7 +7,7 @@ import { ShoppingListItem } from './ShoppingListItem';
 import { ShoppingListRecipe } from './ShoppingListRecipe';
 
 @Entity('shopping_lists')
-@Index(['user_id'])
+@Index(['userId'])
 export class ShoppingList {
   @PrimaryGeneratedColumn('uuid')
   id: string;

@@ -5,8 +5,8 @@ import {
 import { ShoppingList } from './ShoppingList';
 
 @Entity('shopping_list_items')
-@Index(['shopping_list_id'])
-@Index(['shopping_list_id', 'display_order'])
+@Index(['shoppingListId'])
+@Index(['shoppingListId', 'displayOrder'])
 export class ShoppingListItem {
   @PrimaryGeneratedColumn('uuid')
   id: string;
