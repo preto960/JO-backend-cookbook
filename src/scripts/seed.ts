@@ -75,8 +75,10 @@ async function seedDatabase() {
         ('ADMIN', 'SETTINGS', true, true, true, true, true, null, false),
         ('ADMIN', 'PROFILE', true, true, false, true, false, null, false),
         ('ADMIN', 'TRANSLATIONS', true, true, true, true, true, null, false),
+        ('ADMIN', 'SHOPPING_LISTS', true, true, true, true, true, null, false),
         ('USER', 'DASHBOARD', true, true, false, false, false, null, false),
         ('USER', 'PROFILE', true, true, false, true, false, null, false),
+        ('USER', 'SHOPPING_LISTS', true, true, true, true, true, null, false),
         ('USER', 'USERS', false, false, false, false, false, null, false),
         ('USER', 'ROLES', false, false, false, false, false, null, false),
         ('USER', 'SETTINGS', false, false, false, false, false, null, false)

@@ -415,19 +415,37 @@ export class ShoppingListController {
   // DELETE /api/shopping-lists/:id - Delete shopping list
   async deleteShoppingList(req: AuthRequest, res: Response) {
     try {
-      const { id } = req.params;
+      const { id: listId } = req.params;
       const userId = req.user!.id;
 
-      const result = await this.shoppingListRepo.delete({ id, userId });
+      // Verificar que la lista pertenece al usuario
+      const list = await this.shoppingListRepo.findOne({
+        where: { id: listId, userId }
+      });
 
-      if (result.affected === 0) {
+      if (!list) {
         return res.status(404).json({ error: 'Shopping list not found' });
       }
 
-      res.status(204).send();
+      // Eliminar todos los items de la lista primero
+      await this.itemRepo.delete({
+        shoppingListId: listId
+      });
+
+      // Eliminar relaciones con recetas
+      await this.shoppingListRecipeRepo.delete({
+        shoppingListId: listId
+      });
+
+      // Eliminar la lista
+      await this.shoppingListRepo.delete({
+        id: listId
+      });
+
+      res.status(200).json({ message: 'Shopping list deleted successfully' });
     } catch (error) {
-      console.error('Failed to delete shopping list:', error);
-      throw createError('Failed to delete shopping list', 500);
+      console.error('Delete list error:', error);
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
@@ -847,29 +865,32 @@ export class ShoppingListController {
   // DELETE /api/shopping-lists/:id/items/:itemId - Delete item
   async deleteItem(req: AuthRequest, res: Response) {
     try {
-      const { id, itemId } = req.params;
+      const { id: listId, itemId } = req.params;
       const userId = req.user!.id;
 
-      // Verify ownership and delete in one operation
-      const deleteResult = await this.itemRepo
-        .createQueryBuilder('item')
-        .delete()
-        .where('item.id = :itemId', { itemId })
-        .andWhere('item.shoppingListId = :listId', { listId: id })
-        .andWhere('EXISTS (SELECT 1 FROM shopping_lists sl WHERE sl.id = :listId AND sl.userId = :userId)', { 
-          listId: id, 
-          userId 
-        })
-        .execute();
+      // Verificar que la lista pertenece al usuario
+      const list = await this.shoppingListRepo.findOne({
+        where: { id: listId, userId }
+      });
 
-      if (deleteResult.affected === 0) {
-        return res.status(404).json({ error: 'Item not found or access denied' });
+      if (!list) {
+        return res.status(404).json({ error: 'Shopping list not found' });
       }
 
-      res.status(204).send();
+      // Eliminar el item
+      const deleteResult = await this.itemRepo.delete({
+        id: itemId,
+        shoppingListId: listId
+      });
+
+      if (deleteResult.affected === 0) {
+        return res.status(404).json({ error: 'Item not found' });
+      }
+
+      res.status(200).json({ message: 'Item deleted successfully' });
     } catch (error) {
-      console.error('Failed to delete item:', error);
-      res.status(500).json({ error: 'Failed to delete item' });
+      console.error('Delete item error:', error);
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
