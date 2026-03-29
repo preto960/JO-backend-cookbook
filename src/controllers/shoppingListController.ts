@@ -148,7 +148,8 @@ export class ShoppingListController {
         ])
         .where('sl.userId = :userId', { userId })
         .groupBy('sl.id, sl.name, sl.description, sl.isActive, sl.userId, sl.createdAt, sl.updatedAt')
-        .orderBy('sl.updatedAt', 'DESC')
+        .orderBy('sl.isActive', 'DESC') // Show active lists first
+        .addOrderBy('sl.updatedAt', 'DESC') // Then by update date
         .limit(limit)
         .offset(offset);
 
@@ -159,12 +160,13 @@ export class ShoppingListController {
         });
       }
 
-      // Add active filter
+      // Add active filter (only when explicitly specified)
       if (isActive !== undefined) {
         queryBuilder = queryBuilder.andWhere('sl.isActive = :isActive', { 
           isActive: isActive === 'true' 
         });
       }
+      // If no filter specified, show all lists (active and inactive)
 
       // Execute the main query
       const rawResults = await queryBuilder.getRawMany();
