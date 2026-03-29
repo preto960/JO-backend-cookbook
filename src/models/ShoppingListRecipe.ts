@@ -10,20 +10,20 @@ export class ShoppingListRecipe {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({ type: 'uuid' })
+  @Column({ name: 'shopping_list_id', type: 'uuid' })
   shoppingListId: string;
 
   @ManyToOne(() => ShoppingList, list => list.recipes, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'shoppingListId' })
+  @JoinColumn({ name: 'shopping_list_id' })
   shoppingList: ShoppingList;
 
-  @Column({ type: 'uuid' })
+  @Column({ name: 'recipe_id', type: 'uuid' })
   recipeId: string;
 
   @ManyToOne(() => Recipe, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'recipeId' })
+  @JoinColumn({ name: 'recipe_id' })
   recipe: Recipe;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 }

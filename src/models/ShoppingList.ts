@@ -7,7 +7,7 @@ import { ShoppingListItem } from './ShoppingListItem';
 import { ShoppingListRecipe } from './ShoppingListRecipe';
 
 @Entity('shopping_lists')
-@Index(['userId'])
+@Index(['user_id'])
 export class ShoppingList {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -18,14 +18,14 @@ export class ShoppingList {
   @Column({ type: 'text', nullable: true })
   description?: string;
 
-  @Column({ default: true })
+  @Column({ name: 'is_active', default: true })
   isActive: boolean;
 
-  @Column({ type: 'uuid' })
+  @Column({ name: 'user_id', type: 'uuid' })
   userId: string;
 
   @ManyToOne(() => User, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'userId' })
+  @JoinColumn({ name: 'user_id' })
   user: User;
 
   @OneToMany(() => ShoppingListItem, item => item.shoppingList, { cascade: true })
@@ -34,9 +34,9 @@ export class ShoppingList {
   @OneToMany(() => ShoppingListRecipe, recipe => recipe.shoppingList, { cascade: true })
   recipes: ShoppingListRecipe[];
 
-  @CreateDateColumn()
+  @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ name: 'updated_at' })
   updatedAt: Date;
 }

@@ -5,17 +5,17 @@ import {
 import { ShoppingList } from './ShoppingList';
 
 @Entity('shopping_list_items')
-@Index(['shoppingListId'])
-@Index(['shoppingListId', 'displayOrder'])
+@Index(['shopping_list_id'])
+@Index(['shopping_list_id', 'display_order'])
 export class ShoppingListItem {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({ type: 'uuid' })
+  @Column({ name: 'shopping_list_id', type: 'uuid' })
   shoppingListId: string;
 
   @ManyToOne(() => ShoppingList, list => list.items, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'shoppingListId' })
+  @JoinColumn({ name: 'shopping_list_id' })
   shoppingList: ShoppingList;
 
   @Column({ length: 255 })
@@ -33,15 +33,15 @@ export class ShoppingListItem {
   @Column({ length: 100, nullable: true })
   category?: string;
 
-  @Column({ default: false })
+  @Column({ name: 'is_completed', default: false })
   isCompleted: boolean;
 
-  @Column({ type: 'int', default: 0 })
+  @Column({ name: 'display_order', type: 'int', default: 0 })
   displayOrder: number;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ name: 'updated_at' })
   updatedAt: Date;
 }
