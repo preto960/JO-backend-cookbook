@@ -35,6 +35,7 @@ router.delete('/:id/completed', shoppingListController.clearCompletedItems.bind(
 router.post('/:id/items', shoppingListController.addItem.bind(shoppingListController));
 router.put('/:id/items/:itemId', shoppingListController.updateItem.bind(shoppingListController));
 router.patch('/:id/items/:itemId/toggle', shoppingListController.toggleItem.bind(shoppingListController));
+router.get('/:id/items/:itemId/debug', shoppingListController.debugItem.bind(shoppingListController)); // Debug endpoint
 router.delete('/:id/items/:itemId', shoppingListController.deleteItem.bind(shoppingListController));
 router.put('/:id/items/reorder', shoppingListController.reorderItems.bind(shoppingListController));
 

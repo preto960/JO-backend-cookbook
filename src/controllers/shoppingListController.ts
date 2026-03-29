@@ -747,26 +747,47 @@ export class ShoppingListController {
         return res.status(404).json({ error: 'Shopping list not found' });
       }
 
-      // Get the item
+      // Get the current item state
       const item = await this.itemRepo.findOne({
-        where: { id: itemId, shoppingListId: id }
+        where: { id: itemId, shoppingListId: id },
+        select: ['id', 'isCompleted', 'name']
       });
 
       if (!item) {
         return res.status(404).json({ error: 'Item not found' });
       }
 
-      // Toggle completion status
-      item.isCompleted = !item.isCompleted;
-      const updatedItem = await this.itemRepo.save(item);
+      // Calculate new state
+      const newCompletedState = !item.isCompleted;
+
+      // Use direct update query to ensure database persistence
+      const updateResult = await this.itemRepo.update(
+        { id: itemId, shoppingListId: id },
+        { isCompleted: newCompletedState }
+      );
+
+      if (updateResult.affected === 0) {
+        return res.status(404).json({ error: 'Failed to update item' });
+      }
+
+      // Get the updated item to return
+      const updatedItem = await this.itemRepo.findOne({
+        where: { id: itemId }
+      });
 
       res.json({ 
         item: updatedItem,
-        message: updatedItem.isCompleted ? 'Item marked as completed' : 'Item marked as pending'
+        message: newCompletedState ? 'Item marked as completed' : 'Item marked as pending',
+        debug: {
+          previousState: item.isCompleted,
+          newState: newCompletedState,
+          affectedRows: updateResult.affected
+        }
       });
     } catch (error) {
       console.error('Failed to toggle item:', error);
-      res.status(500).json({ error: 'Failed to toggle item' });
+      console.error('Error details:', error);
+      res.status(500).json({ error: 'Failed to toggle item', details: error instanceof Error ? error.message : 'Unknown error' });
     }
   }
 
@@ -900,6 +921,51 @@ export class ShoppingListController {
     } catch (error) {
       console.error('Failed to perform bulk operation:', error);
       res.status(500).json({ error: 'Failed to perform bulk operation' });
+    }
+  }
+
+  // GET /api/shopping-lists/:id/items/:itemId/debug - Debug item state
+  async debugItem(req: AuthRequest, res: Response) {
+    try {
+      const { id, itemId } = req.params;
+      const userId = req.user!.id;
+
+      // Verify list ownership
+      const shoppingList = await this.shoppingListRepo.findOne({
+        where: { id, userId },
+        select: ['id']
+      });
+
+      if (!shoppingList) {
+        return res.status(404).json({ error: 'Shopping list not found' });
+      }
+
+      // Get item with all fields
+      const item = await this.itemRepo.findOne({
+        where: { id: itemId, shoppingListId: id }
+      });
+
+      if (!item) {
+        return res.status(404).json({ error: 'Item not found' });
+      }
+
+      // Also get raw SQL result to compare
+      const rawResult = await this.itemRepo.query(
+        'SELECT id, name, is_completed, shopping_list_id FROM shopping_list_items WHERE id = $1',
+        [itemId]
+      );
+
+      res.json({
+        typeormResult: item,
+        rawSqlResult: rawResult[0] || null,
+        columnMapping: {
+          isCompleted: item.isCompleted,
+          is_completed_raw: rawResult[0]?.is_completed
+        }
+      });
+    } catch (error) {
+      console.error('Failed to debug item:', error);
+      res.status(500).json({ error: 'Failed to debug item' });
     }
   }
 
