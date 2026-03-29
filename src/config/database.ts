@@ -10,6 +10,9 @@ import { RecipeIngredient } from '../models/RecipeIngredient';
 import { RecipeTag } from '../models/RecipeTag';
 import { RecipeRating } from '../models/RecipeRating';
 import { RecipeFavourite } from '../models/RecipeFavourite';
+import { ShoppingList } from '../models/ShoppingList';
+import { ShoppingListItem } from '../models/ShoppingListItem';
+import { ShoppingListRecipe } from '../models/ShoppingListRecipe';
 
 export const AppDataSource = new DataSource({
   type: 'postgres',
@@ -28,7 +31,7 @@ export const AppDataSource = new DataSource({
     connectionTimeoutMillis: 15000,
     idleTimeoutMillis: 10000,
   },
-  entities: [User, Role, Permission, Setting, Translation, Recipe, RecipeCategory, RecipeIngredient, RecipeTag, RecipeRating, RecipeFavourite],
+  entities: [User, Role, Permission, Setting, Translation, Recipe, RecipeCategory, RecipeIngredient, RecipeTag, RecipeRating, RecipeFavourite, ShoppingList, ShoppingListItem, ShoppingListRecipe],
   migrations: ['src/migrations/*.ts'],
   subscribers: [],
 });
