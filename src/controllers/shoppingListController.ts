@@ -260,47 +260,56 @@ export class ShoppingListController {
       const { id } = req.params;
       const userId = req.user!.id;
 
-      // Use raw SQL to ensure we get the most up-to-date data
+      // First, get the shopping list
       const listQuery = `
-        SELECT 
-          sl.id,
-          sl.name,
-          sl.description,
-          sl.is_active,
-          sl.user_id,
-          sl.created_at,
-          sl.updated_at,
-          COALESCE(
-            json_agg(
-              json_build_object(
-                'id', sli.id,
-                'name', sli.name,
-                'quantity', sli.quantity,
-                'unit', sli.unit,
-                'notes', sli.notes,
-                'isCompleted', sli.is_completed,  -- ← Ensure this is correct
-                'category', sli.category,
-                'displayOrder', sli.display_order,
-                'createdAt', sli.created_at,
-                'updatedAt', sli.updated_at
-              ) ORDER BY sli.display_order ASC, sli.created_at ASC
-            ) FILTER (WHERE sli.id IS NOT NULL), 
-            '[]'::json
-          ) as items
-        FROM shopping_lists sl
-        LEFT JOIN shopping_list_items sli ON sl.id = sli.shopping_list_id
-        WHERE sl.id = $1 AND sl.user_id = $2
-        GROUP BY sl.id, sl.name, sl.description, sl.is_active, sl.user_id, sl.created_at, sl.updated_at
+        SELECT id, name, description, is_active, user_id, created_at, updated_at
+        FROM shopping_lists 
+        WHERE id = $1 AND user_id = $2
       `;
 
-      const result = await this.shoppingListRepo.query(listQuery, [id, userId]);
+      const listResult = await this.shoppingListRepo.query(listQuery, [id, userId]);
 
-      if (result.length === 0) {
+      if (listResult.length === 0) {
         return res.status(404).json({ error: 'Shopping list not found' });
       }
 
-      const listData = result[0];
-      const items = listData.items || [];
+      const listData = listResult[0];
+
+      // Get items separately with explicit boolean handling
+      const itemsQuery = `
+        SELECT 
+          id,
+          shopping_list_id,
+          name,
+          quantity,
+          unit,
+          notes,
+          category,
+          is_completed,  -- ← Get raw boolean value
+          display_order,
+          created_at,
+          updated_at
+        FROM shopping_list_items
+        WHERE shopping_list_id = $1
+        ORDER BY display_order ASC, created_at ASC
+      `;
+
+      const itemsResult = await this.itemRepo.query(itemsQuery, [id]);
+
+      // Format items with explicit boolean conversion
+      const items = itemsResult.map((item: any) => ({
+        id: item.id,
+        shoppingListId: item.shopping_list_id,
+        name: item.name,
+        quantity: item.quantity,
+        unit: item.unit,
+        notes: item.notes,
+        category: item.category,
+        isCompleted: Boolean(item.is_completed), // ← Explicit boolean conversion
+        displayOrder: item.display_order,
+        createdAt: item.created_at,
+        updatedAt: item.updated_at
+      }));
 
       // Get linked recipes (optional)
       const recipesQuery = `
@@ -323,7 +332,7 @@ export class ShoppingListController {
         id: listData.id,
         name: listData.name,
         description: listData.description,
-        isActive: listData.is_active,
+        isActive: Boolean(listData.is_active), // ← Explicit boolean conversion
         userId: listData.user_id,
         createdAt: listData.created_at,
         updatedAt: listData.updated_at,
