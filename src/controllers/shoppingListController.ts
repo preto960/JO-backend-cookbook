@@ -136,15 +136,15 @@ export class ShoppingListController {
         .createQueryBuilder('sl')
         .leftJoin('sl.items', 'sli')
         .select([
-          'sl.id',
-          'sl.name', 
-          'sl.description',
-          'sl.isActive',
-          'sl.userId',
-          'sl.createdAt',
-          'sl.updatedAt',
-          'COUNT(sli.id) as itemCount',
-          'COUNT(CASE WHEN sli.isCompleted = true THEN 1 END) as completedCount'
+          'sl.id as id',
+          'sl.name as name', 
+          'sl.description as description',
+          'sl.isActive as "isActive"',
+          'sl.userId as "userId"',
+          'sl.createdAt as "createdAt"',
+          'sl.updatedAt as "updatedAt"',
+          'COUNT(sli.id) as "itemCount"',
+          'COUNT(CASE WHEN sli.isCompleted = true THEN 1 END) as "completedCount"'
         ])
         .where('sl.userId = :userId', { userId })
         .groupBy('sl.id, sl.name, sl.description, sl.isActive, sl.userId, sl.createdAt, sl.updatedAt')
@@ -192,15 +192,15 @@ export class ShoppingListController {
 
       // Format the response
       const shoppingLists = rawResults.map(row => ({
-        id: row.sl_id,
-        name: row.sl_name,
-        description: row.sl_description,
-        isActive: row.sl_isActive,
-        userId: row.sl_userId,
-        createdAt: row.sl_createdAt,
-        updatedAt: row.sl_updatedAt,
-        itemCount: parseInt(row.itemcount) || 0,
-        completedCount: parseInt(row.completedcount) || 0
+        id: row.id,
+        name: row.name,
+        description: row.description,
+        isActive: row.isActive,
+        userId: row.userId,
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
+        itemCount: parseInt(row.itemCount) || 0,
+        completedCount: parseInt(row.completedCount) || 0
       }));
 
       // Set cache headers
