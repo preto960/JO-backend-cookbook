@@ -737,24 +737,28 @@ export class ShoppingListController {
       const { id, itemId } = req.params;
       const userId = req.user!.id;
 
-      // Verify ownership in a single query
-      const result = await this.itemRepo
-        .createQueryBuilder('item')
-        .innerJoin('item.shoppingList', 'list')
-        .where('item.id = :itemId', { itemId })
-        .andWhere('list.id = :listId', { listId: id })
-        .andWhere('list.userId = :userId', { userId })
-        .getOne();
+      // First verify list ownership
+      const shoppingList = await this.shoppingListRepo.findOne({
+        where: { id, userId },
+        select: ['id']
+      });
 
-      if (!result) {
-        return res.status(404).json({ error: 'Item not found or access denied' });
+      if (!shoppingList) {
+        return res.status(404).json({ error: 'Shopping list not found' });
+      }
+
+      // Get the item
+      const item = await this.itemRepo.findOne({
+        where: { id: itemId, shoppingListId: id }
+      });
+
+      if (!item) {
+        return res.status(404).json({ error: 'Item not found' });
       }
 
       // Toggle completion status
-      const updatedItem = await this.itemRepo.save({
-        ...result,
-        isCompleted: !result.isCompleted
-      });
+      item.isCompleted = !item.isCompleted;
+      const updatedItem = await this.itemRepo.save(item);
 
       res.json({ 
         item: updatedItem,
