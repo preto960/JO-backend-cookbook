@@ -9,6 +9,7 @@ export enum ResourceType {
   PROFILE = 'PROFILE',
   TRANSLATIONS = 'TRANSLATIONS',
   RECIPE_BOOK = 'RECIPE_BOOK',
+  SHOPPING_LISTS = 'SHOPPING_LISTS',
 }
 
 export enum PermissionAction {

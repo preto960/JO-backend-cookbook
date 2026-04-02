@@ -18,9 +18,14 @@
  */
 
 import { Response, NextFunction } from 'express';
-import { AppDataSource }          from '../config/database';
-import { Permission }             from '../models/Permission';
-import { AuthRequest }            from './auth';
+import { AppDataSource } from '../config/database';
+import { Permission } from '../models/Permission';
+import {
+  getRecipeBookPermissionForRole,
+  canEditOthersRecipes,
+  canDeleteOthersRecipes,
+} from '../services/recipeBookAccess';
+import { AuthRequest } from './auth';
 
 export type RecipeAction = 'view' | 'create' | 'edit' | 'delete';
 
@@ -71,19 +76,12 @@ export function requireRecipePermission(action: RecipeAction) {
 }
 
 /**
- * requireRecipeOwnerOrAdmin
- *
- * Secondary guard used on edit/delete routes to ensure the authenticated user
- * either owns the resource or is an ADMIN / DEVELOPER.
- *
- * This is intentionally separate from the permission table check so the two
- * concerns remain orthogonal:
- *   • The permission table controls ROLE-level access.
- *   • This guard controls OWNERSHIP-level access within an allowed role.
- *
- * It is used **after** requireRecipePermission, not instead of it.
+ * Secondary guard: owner of the recipe, or RECIPE_BOOK row grants elevated access
+ * (see `canEditOthersRecipes` / `canDeleteOthersRecipes` in recipeBookAccess).
+ * Use after `requireRecipePermission`.
  */
-export function requireRecipeOwnerOrAdmin(
+export function requireRecipeOwnerOrElevated(
+  mode: 'edit' | 'delete',
   getOwnerId: (req: AuthRequest) => Promise<string | null>,
 ) {
   return async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -91,8 +89,10 @@ export function requireRecipeOwnerOrAdmin(
       return res.status(401).json({ message: 'Authentication required' });
     }
 
-    const isAdmin = ['ADMIN', 'DEVELOPER'].includes(req.user.role);
-    if (isAdmin) return next();
+    const perm = await getRecipeBookPermissionForRole(req.user.role);
+    const bypass =
+      mode === 'edit' ? canEditOthersRecipes(perm) : canDeleteOthersRecipes(perm);
+    if (bypass) return next();
 
     const ownerId = await getOwnerId(req);
     if (!ownerId || ownerId !== req.user.id) {

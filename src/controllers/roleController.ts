@@ -238,6 +238,8 @@ export class RoleController {
         { role: roleName, resource: 'USERS', canInMenu: false, canView: false, canCreate: false, canEdit: false, canDelete: false, pluginId: null, isDynamic: false },
         { role: roleName, resource: 'ROLES', canInMenu: false, canView: false, canCreate: false, canEdit: false, canDelete: false, pluginId: null, isDynamic: false },
         { role: roleName, resource: 'SETTINGS', canInMenu: false, canView: false, canCreate: false, canEdit: false, canDelete: false, pluginId: null, isDynamic: false },
+        { role: roleName, resource: 'RECIPE_BOOK', canInMenu: true, canView: true, canCreate: false, canEdit: false, canDelete: false, pluginId: null, isDynamic: false },
+        { role: roleName, resource: 'SHOPPING_LISTS', canInMenu: true, canView: true, canCreate: true, canEdit: true, canDelete: true, pluginId: null, isDynamic: false },
       ];
  
       await this.permissionRepository.save(defaultPermissions);

@@ -8,6 +8,12 @@ import { RecipeRating }     from '../models/RecipeRating';
 import { RecipeFavourite }  from '../models/RecipeFavourite';
 import { AuthRequest }      from '../middleware/auth';
 import { createError }      from '../middleware/errorHandler';
+import {
+  getRecipeBookPermissionForRole,
+  canAccessFullRecipeCatalog,
+  canEditOthersRecipes,
+  canDeleteOthersRecipes,
+} from '../services/recipeBookAccess';
 import { ILike, IsNull, Not } from 'typeorm';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -75,10 +81,9 @@ export class RecipeController {
         .loadRelationCountAndMap('r.ratingCount', 'r.ratings')
         .where('r.isActive = true');
 
-      // Non-admin users can only see published recipes that are not their own
-      const isAdmin = ['ADMIN', 'DEVELOPER'].includes(req.user?.role || '');
-      if (!isAdmin) {
-        qb.andWhere('(r.isPublished = true OR r.createdBy = :uid)', { uid: req.user?.id });
+      const recipePerm = await getRecipeBookPermissionForRole(req.user!.role);
+      if (!canAccessFullRecipeCatalog(recipePerm)) {
+        qb.andWhere('(r.isPublished = true OR r.createdBy = :uid)', { uid: req.user!.id });
       }
 
       if (search)     qb.andWhere('(r.title ILIKE :s OR r.description ILIKE :s)', { s: `%${search}%` });
@@ -138,10 +143,10 @@ export class RecipeController {
 
       if (!recipe) throw createError('Recipe not found', 404);
 
-      // Non-admin users cannot see unpublished recipes from others
-      const isAdmin    = ['ADMIN', 'DEVELOPER'].includes(req.user?.role || '');
-      const isOwner    = recipe.createdBy === req.user?.id;
-      if (!recipe.isPublished && !isAdmin && !isOwner) {
+      const recipePerm = await getRecipeBookPermissionForRole(req.user!.role);
+      const fullCatalog = canAccessFullRecipeCatalog(recipePerm);
+      const isOwner = String(recipe.createdBy) === String(req.user?.id);
+      if (!recipe.isPublished && !fullCatalog && !isOwner) {
         throw createError('Recipe not found', 404);
       }
 
@@ -244,9 +249,8 @@ export class RecipeController {
       });
       if (!recipe) throw createError('Recipe not found', 404);
 
-      // Only owner or admin can update
-      const isAdmin = ['ADMIN', 'DEVELOPER'].includes(req.user?.role || '');
-      if (!isAdmin && recipe.createdBy !== req.user?.id) {
+      const recipePerm = await getRecipeBookPermissionForRole(req.user!.role);
+      if (!canEditOthersRecipes(recipePerm) && recipe.createdBy !== req.user?.id) {
         throw createError('You are not allowed to edit this recipe', 403);
       }
 
@@ -320,8 +324,8 @@ export class RecipeController {
       const recipe = await this.recipeRepo.findOne({ where: { id, isActive: true } });
       if (!recipe) throw createError('Recipe not found', 404);
 
-      const isAdmin = ['ADMIN'].includes(req.user?.role || '');
-      if (!isAdmin && recipe.createdBy !== req.user?.id) {
+      const recipePerm = await getRecipeBookPermissionForRole(req.user!.role);
+      if (!canDeleteOthersRecipes(recipePerm) && recipe.createdBy !== req.user?.id) {
         throw createError('You are not allowed to delete this recipe', 403);
       }
 
@@ -345,8 +349,8 @@ export class RecipeController {
       const recipe = await this.recipeRepo.findOne({ where: { id, isActive: true } });
       if (!recipe) throw createError('Recipe not found', 404);
 
-      const isAdmin = ['ADMIN', 'DEVELOPER'].includes(req.user?.role || '');
-      if (!isAdmin && recipe.createdBy !== req.user?.id) {
+      const recipePerm = await getRecipeBookPermissionForRole(req.user!.role);
+      if (!canEditOthersRecipes(recipePerm) && recipe.createdBy !== req.user?.id) {
         throw createError('You are not allowed to publish/unpublish this recipe', 403);
       }
 

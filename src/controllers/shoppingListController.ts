@@ -4,10 +4,29 @@ import { ShoppingList } from '../models/ShoppingList';
 import { ShoppingListItem } from '../models/ShoppingListItem';
 import { ShoppingListRecipe } from '../models/ShoppingListRecipe';
 import { Recipe } from '../models/Recipe';
-import { RecipeIngredient } from '../models/RecipeIngredient';
 import { AuthRequest } from '../middleware/auth';
 import { createError } from '../middleware/errorHandler';
+import { Permission } from '../models/Permission';
+import {
+  getRecipeBookPermissionForRole,
+  canAccessFullRecipeCatalog,
+} from '../services/recipeBookAccess';
 import { In } from 'typeorm';
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Same visibility as recipe list/get: full catalog vs own-or-published. */
+function canUseRecipeInShoppingList(
+  recipe: Recipe,
+  userId: string,
+  recipeBookPerm: Permission | null,
+): boolean {
+  if (!recipe.isActive) return false;
+  if (canAccessFullRecipeCatalog(recipeBookPerm)) return true;
+  if (String(recipe.createdBy) === String(userId)) return true;
+  return recipe.isPublished === true;
+}
 
 // Types
 interface CreateShoppingListPayload {
@@ -103,6 +122,20 @@ function groupIngredients(recipes: Recipe[]): GroupedIngredient[] {
   return Array.from(ingredientMap.values());
 }
 
+/** TypeORM sets inverse relations (item.shoppingList → list), causing circular JSON on res.json. */
+function prepareShoppingListForResponse(list: ShoppingList | null | undefined): void {
+  if (!list) return;
+  if (list.items?.length) {
+    list.items.sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0));
+    for (const item of list.items) {
+      delete (item as any).shoppingList;
+    }
+  }
+  for (const link of list.recipes ?? []) {
+    delete (link as any).shoppingList;
+  }
+}
+
 export class ShoppingListController {
   private shoppingListRepo = AppDataSource.getRepository(ShoppingList);
   private itemRepo = AppDataSource.getRepository(ShoppingListItem);
@@ -110,10 +143,9 @@ export class ShoppingListController {
   private shoppingListRecipeRepo = AppDataSource.getRepository(ShoppingListRecipe);
 
   // Health check endpoint
-  async healthCheck(req: AuthRequest, res: Response) {
+  async healthCheck(_req: AuthRequest, res: Response) {
     try {
-      // Simple query to check database connectivity
-      await this.shoppingListRepo.count({ where: { userId: req.user!.id }, take: 1 });
+      await this.shoppingListRepo.createQueryBuilder('sl').select('1').limit(1).getRawOne();
       res.json({ status: 'ok', timestamp: new Date().toISOString() });
     } catch (error) {
       console.error('Shopping lists health check failed:', error);
@@ -244,8 +276,9 @@ export class ShoppingListController {
       
       const result = await this.shoppingListRepo.findOne({
         where: { id: saved.id },
-        relations: ['items', 'recipes', 'recipes.recipe']
+        relations: ['items', 'recipes', 'recipes.recipe'],
       });
+      prepareShoppingListForResponse(result);
 
       res.status(201).json({ shoppingList: result });
     } catch (error) {
@@ -400,10 +433,8 @@ export class ShoppingListController {
       const updated = await this.shoppingListRepo.findOne({
         where: { id },
         relations: ['items', 'recipes', 'recipes.recipe'],
-        order: {
-          items: { displayOrder: 'ASC' }
-        }
       });
+      prepareShoppingListForResponse(updated);
 
       res.json({ shoppingList: updated });
     } catch (error) {
@@ -463,27 +494,63 @@ export class ShoppingListController {
         return res.status(400).json({ error: 'At least one recipe ID is required' });
       }
 
-      // Create the shopping list
+      const uniqueIds = [
+        ...new Set(
+          payload.recipeIds
+            .map((id: unknown) => String(id ?? '').trim())
+            .filter((id) => UUID_RE.test(id)),
+        ),
+      ];
+
+      if (!uniqueIds.length) {
+        return res.status(400).json({
+          error: 'Invalid recipe IDs',
+          message:
+            'The app sent no valid recipe UUIDs. Pull to refresh or reopen the recipe, then try again.',
+        });
+      }
+
+      const recipeBookPerm = await getRecipeBookPermissionForRole(req.user!.role);
+      const recipesRaw = await this.recipeRepo.find({
+        where: { id: In(uniqueIds), isActive: true },
+        relations: ['ingredients'],
+      });
+
+      for (const r of recipesRaw) {
+        if (r.ingredients?.length) {
+          r.ingredients.sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+        }
+      }
+
+      const recipes = recipesRaw.filter((r) =>
+        canUseRecipeInShoppingList(r, userId, recipeBookPerm),
+      );
+
+      const idOrder = new Map(uniqueIds.map((id, i) => [id, i]));
+      recipes.sort((a, b) => (idOrder.get(a.id) ?? 0) - (idOrder.get(b.id) ?? 0));
+
+      if (recipes.length === 0) {
+        return res.status(400).json({
+          error: 'No valid recipes found',
+          message:
+            'Those recipes are not available for your account (unpublished and not yours), or they were removed.',
+        });
+      }
+
+      if (recipes.length < uniqueIds.length) {
+        return res.status(400).json({
+          error: 'Some recipes are unavailable',
+          message:
+            'One or more recipes are private, unpublished, or removed. Remove them and try again.',
+        });
+      }
+
       const shoppingList = this.shoppingListRepo.create({
         name: payload.name.trim(),
         description: payload.description?.trim(),
         userId
       });
-
       const savedList = await this.shoppingListRepo.save(shoppingList);
-
-      // Get recipes with ingredients
-      const recipes = await this.recipeRepo.find({
-        where: { 
-          id: In(payload.recipeIds),
-          createdBy: userId // Ensure user owns the recipes
-        },
-        relations: ['ingredients']
-      });
-
-      if (recipes.length === 0) {
-        return res.status(400).json({ error: 'No valid recipes found' });
-      }
 
       // Group ingredients
       const groupedIngredients = groupIngredients(recipes);
@@ -517,10 +584,8 @@ export class ShoppingListController {
       const result = await this.shoppingListRepo.findOne({
         where: { id: savedList.id },
         relations: ['items', 'recipes', 'recipes.recipe'],
-        order: {
-          items: { displayOrder: 'ASC' }
-        }
       });
+      prepareShoppingListForResponse(result);
 
       res.status(201).json({ shoppingList: result });
     } catch (error) {
@@ -587,10 +652,8 @@ export class ShoppingListController {
       const result = await this.shoppingListRepo.findOne({
         where: { id: savedDuplicate.id },
         relations: ['items', 'recipes', 'recipes.recipe'],
-        order: {
-          items: { displayOrder: 'ASC' }
-        }
       });
+      prepareShoppingListForResponse(result);
 
       res.status(201).json({ shoppingList: result });
     } catch (error) {
@@ -622,10 +685,8 @@ export class ShoppingListController {
       const updated = await this.shoppingListRepo.findOne({
         where: { id },
         relations: ['items'],
-        order: {
-          items: { displayOrder: 'ASC' }
-        }
       });
+      prepareShoppingListForResponse(updated);
 
       res.json({ shoppingList: updated });
     } catch (error) {
@@ -656,10 +717,8 @@ export class ShoppingListController {
       const updated = await this.shoppingListRepo.findOne({
         where: { id },
         relations: ['items'],
-        order: {
-          items: { displayOrder: 'ASC' }
-        }
       });
+      prepareShoppingListForResponse(updated);
 
       res.json({ shoppingList: updated });
     } catch (error) {
